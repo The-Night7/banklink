@@ -5,6 +5,7 @@ import { Platform } from "react-native";
 import {
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
+  getRedirectResult,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signInWithPopup,
@@ -21,11 +22,13 @@ type AuthContextValue = {
   user: User | null;
   profile: UserProfile | null;
   loading: boolean;
+  authFeedback: string | null;
   signInWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (email: string, password: string, displayName: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signOutUser: () => Promise<void>;
   completeOnboarding: (payload: Partial<UserProfile>) => Promise<void>;
+  clearAuthFeedback: () => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -34,14 +37,44 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authFeedback, setAuthFeedback] = useState<string | null>(null);
 
   useEffect(() => {
+    let active = true;
+
     const unsubscribe = onAuthStateChanged(auth, (nextUser: User | null) => {
+      if (!active) {
+        return;
+      }
+
       setUser(nextUser);
       setLoading(false);
     });
 
-    return unsubscribe;
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") {
+      return;
+    }
+
+    let active = true;
+
+    void getRedirectResult(auth).catch((error: unknown) => {
+      if (!active) {
+        return;
+      }
+
+      setAuthFeedback(describeAuthError(error));
+    });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -50,8 +83,13 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
       return;
     }
 
+    let active = true;
     const profileRef = doc(firestore, `users/${user.uid}`);
     const unsubscribe = onSnapshot(profileRef, async (snapshot: any) => {
+      if (!active) {
+        return;
+      }
+
       if (!snapshot.exists()) {
         const now = new Date().toISOString();
         const fallbackProfile: UserProfile = {
@@ -65,14 +103,21 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
           updatedAt: now
         };
         await setDoc(profileRef, fallbackProfile, { merge: true });
-        setProfile(fallbackProfile);
+        if (active) {
+          setProfile(fallbackProfile);
+        }
         return;
       }
 
-      setProfile(snapshot.data() as UserProfile);
+      if (active) {
+        setProfile(snapshot.data() as UserProfile);
+      }
     });
 
-    return unsubscribe;
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, [user]);
 
   const value = useMemo<AuthContextValue>(
@@ -80,14 +125,19 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
       user,
       profile,
       loading,
+      authFeedback,
       signInWithEmail: async (email, password) => {
+        setAuthFeedback(null);
         try {
           await signInWithEmailAndPassword(auth, email, password);
         } catch (error) {
-          throw new Error(describeAuthError(error));
+          const message = describeAuthError(error);
+          setAuthFeedback(message);
+          throw new Error(message);
         }
       },
       signUpWithEmail: async (email, password, displayName) => {
+        setAuthFeedback(null);
         try {
           const credentials = await createUserWithEmailAndPassword(auth, email, password);
           await updateProfile(credentials.user, { displayName });
@@ -106,31 +156,48 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
             { merge: true }
           );
         } catch (error) {
-          throw new Error(describeAuthError(error));
+          const message = describeAuthError(error);
+          setAuthFeedback(message);
+          throw new Error(message);
         }
       },
       signInWithGoogle: async () => {
         if (Platform.OS !== "web") {
-          throw new Error("Google sur mobile necessite encore des client IDs OAuth natifs. Utilise email/mot de passe dans Expo Go pour l'instant.");
+          const message =
+            "Google sur mobile necessite encore des client IDs OAuth natifs. Utilise email/mot de passe dans Expo Go pour l'instant.";
+          setAuthFeedback(message);
+          throw new Error(message);
         }
 
         const provider = new GoogleAuthProvider() as any;
+        provider.addScope?.("email");
+        provider.addScope?.("profile");
         provider.setCustomParameters?.({ prompt: "select_account" });
+        setAuthFeedback(null);
 
         try {
+          if (shouldPreferRedirect()) {
+            await signInWithRedirect(auth, provider);
+            return;
+          }
+
           await signInWithPopup(auth, provider);
         } catch (error) {
           const code = getFirebaseErrorCode(error);
 
           if (code === "auth/popup-blocked" || code === "auth/cancelled-popup-request") {
+            setAuthFeedback("La fenetre Google a ete bloquee. Redirection vers Google en cours.");
             await signInWithRedirect(auth, provider);
             return;
           }
 
-          throw new Error(describeAuthError(error));
+          const message = describeAuthError(error);
+          setAuthFeedback(message);
+          throw new Error(message);
         }
       },
       signOutUser: async () => {
+        setAuthFeedback(null);
         await signOut(auth);
       },
       completeOnboarding: async (payload) => {
@@ -153,9 +220,12 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
           },
           { merge: true }
         );
+      },
+      clearAuthFeedback: () => {
+        setAuthFeedback(null);
       }
     }),
-    [loading, profile, user]
+    [authFeedback, loading, profile, user]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -192,12 +262,38 @@ const describeAuthError = (error: unknown) => {
     case "auth/cancelled-popup-request":
       return "Le navigateur a bloque la fenetre Google. Une redirection va etre tentee.";
     case "auth/operation-not-allowed":
-      return "Le provider Google n'est pas active dans Firebase Auth.";
+      return "Le provider Google n'est pas active dans Firebase Auth. Active Authentication > Sign-in method > Google.";
     case "auth/unauthorized-domain":
-      return "Le domaine actuel n'est pas autorise dans Firebase Auth.";
+      return `Le domaine ${currentHostLabel()} n'est pas autorise dans Firebase Auth. Ajoute-le dans Authentication > Settings > Authorized domains.`;
+    case "auth/app-not-authorized":
+      return "Cette application Firebase n'est pas autorisee pour Google. Verifie la cle API, l'authDomain et la configuration Web du projet.";
+    case "auth/invalid-api-key":
+      return "La configuration Firebase du client est incomplete. Verifie les variables EXPO_PUBLIC_FIREBASE_* ou le fallback du projet.";
+    case "auth/account-exists-with-different-credential":
+      return "Un compte existe deja avec ce meme email mais une autre methode de connexion.";
     case "auth/network-request-failed":
       return "La requete reseau a echoue. Verifie ta connexion.";
     default:
       return error instanceof Error ? error.message : "Erreur d'authentification inconnue.";
   }
+};
+
+const shouldPreferRedirect = () => {
+  if (Platform.OS !== "web" || typeof navigator === "undefined") {
+    return false;
+  }
+
+  const userAgent = navigator.userAgent.toLowerCase();
+  const isMobileBrowser = /android|iphone|ipad|ipod/.test(userAgent);
+  const isSafari = /safari/.test(userAgent) && !/chrome|crios|fxios|android/.test(userAgent);
+
+  return isMobileBrowser || isSafari;
+};
+
+const currentHostLabel = () => {
+  if (typeof window === "undefined" || !window.location.host) {
+    return "actuel";
+  }
+
+  return window.location.host;
 };

@@ -90,6 +90,7 @@ declare module "firebase/auth" {
   export class GoogleAuthProvider {}
   export type User = any;
   export function createUserWithEmailAndPassword(...args: any[]): Promise<any>;
+  export function getRedirectResult(...args: any[]): Promise<any>;
   export function getAuth(...args: any[]): any;
   export function onAuthStateChanged(...args: any[]): () => void;
   export function signInWithEmailAndPassword(...args: any[]): Promise<any>;
