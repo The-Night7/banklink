@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Redirect } from "expo-router";
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, Screen, colors, radii, spacing } from "@budgetlink/ui";
@@ -13,7 +14,15 @@ export default function SignInScreen() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
-  const { authFeedback, clearAuthFeedback, signInWithEmail, signInWithGoogle, signUpWithEmail } = useAuth();
+  const { authFeedback, clearAuthFeedback, profile, signInWithEmail, signInWithGoogle, signUpWithEmail, user } = useAuth();
+
+  if (user && profile?.onboardingCompleted) {
+    return <Redirect href="/(app)/(tabs)" />;
+  }
+
+  if (user) {
+    return <Redirect href="/(auth)/onboarding" />;
+  }
 
   const submit = async () => {
     try {
