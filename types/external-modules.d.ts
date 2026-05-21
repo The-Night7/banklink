@@ -86,6 +86,13 @@ declare module "firebase/app" {
   export function initializeApp(config: any): any;
 }
 
+declare module "firebase/app-check" {
+  export class ReCaptchaV3Provider {
+    constructor(siteKey: string);
+  }
+  export function initializeAppCheck(...args: any[]): any;
+}
+
 declare module "firebase/auth" {
   export class GoogleAuthProvider {}
   export type User = any;

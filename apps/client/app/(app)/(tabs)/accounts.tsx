@@ -1,5 +1,6 @@
 import { createURL, openURL } from "expo-linking";
 import { Platform, Alert, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
 
 import { Card, Chip, EmptyState, Screen, SectionHeader, colors, spacing } from "@budgetlink/ui";
 
@@ -20,22 +21,29 @@ export default function AccountsScreen() {
   const { user } = useAuth();
   const { data: accounts } = useAccounts();
   const { data: connections } = useConnections();
+  const [pendingAction, setPendingAction] = useState<"connect" | "sync" | "csv" | null>(null);
 
   const connectBank = async () => {
     try {
-      const session = await createBankLinkSession(createURL("/(app)/(tabs)/accounts"));
+      setPendingAction("connect");
+      const session = await createBankLinkSession(createURL("/accounts"));
       await openURL(session.sessionUrl);
     } catch (error) {
       Alert.alert("Connexion bancaire impossible", error instanceof Error ? error.message : "Erreur inconnue");
+    } finally {
+      setPendingAction(null);
     }
   };
 
   const syncAll = async () => {
     try {
+      setPendingAction("sync");
       await runManualSync();
       Alert.alert("Synchronisation lancee", "Le backend traite les operations connectees.");
     } catch (error) {
       Alert.alert("Sync impossible", error instanceof Error ? error.message : "Erreur inconnue");
+    } finally {
+      setPendingAction(null);
     }
   };
 
@@ -59,6 +67,7 @@ export default function AccountsScreen() {
       }
 
       try {
+        setPendingAction("csv");
         await importCsvWithStandardHeaders({
           file,
           userId: user.uid,
@@ -68,6 +77,8 @@ export default function AccountsScreen() {
         Alert.alert("Import termine", "Le CSV a ete ajoute avec les en-tetes standard: date, amount, label, merchant, category.");
       } catch (error) {
         Alert.alert("Import impossible", error instanceof Error ? error.message : "Erreur inconnue");
+      } finally {
+        setPendingAction(null);
       }
     };
     input.click();
@@ -86,12 +97,12 @@ export default function AccountsScreen() {
       <Card>
         <SectionHeader title="Actions" description="Connecte une banque Powens, relance une sync, ou importe un CSV standard." />
         <View style={styles.actions}>
-          <ActionButton label="Connecter ma banque" onPress={connectBank} />
-          <ActionButton label="Synchroniser" onPress={syncAll} variant="secondary" />
-          <ActionButton label="Importer un CSV" onPress={importCsv} variant="secondary" />
+          <ActionButton label="Connecter ma banque" onPress={connectBank} loading={pendingAction === "connect"} disabled={pendingAction !== null} />
+          <ActionButton label="Synchroniser" onPress={syncAll} variant="secondary" loading={pendingAction === "sync"} disabled={pendingAction !== null} />
+          <ActionButton label="Importer un CSV" onPress={importCsv} variant="secondary" loading={pendingAction === "csv"} disabled={pendingAction !== null} />
         </View>
         <Text style={styles.caption}>
-          Format CSV V1: en-tetes `date`, `amount`, `label`, `merchant`, `category`, `account`.
+          Retour Powens: `/accounts`. Format CSV V1: en-tetes `date`, `amount`, `label`, `merchant`, `category`, `account`.
         </Text>
       </Card>
 
@@ -115,6 +126,7 @@ export default function AccountsScreen() {
                   />
                 </View>
                 <Text style={styles.caption}>Derniere sync: {connection.lastSyncAt ?? "jamais"}</Text>
+                {connection.syncError ? <Text style={styles.errorText}>{connection.syncError}</Text> : null}
                 <ActionButton label="Deconnecter" onPress={() => disconnect(connection.id)} variant="ghost" />
               </View>
             ))
@@ -184,5 +196,10 @@ const styles = StyleSheet.create({
     color: colors.accentStrong,
     fontSize: 22,
     fontWeight: "700"
+  },
+  errorText: {
+    color: colors.danger,
+    fontSize: 13,
+    lineHeight: 18
   }
 });

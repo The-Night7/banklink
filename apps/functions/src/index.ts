@@ -3,6 +3,7 @@ import { defineSecret } from "firebase-functions/params";
 import { logger } from "firebase-functions";
 import { onRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import { readServerEnv } from "@budgetlink/config";
 
 import { db } from "./firebase";
 import { PowensProvider } from "./providers/powens";
@@ -13,10 +14,18 @@ const POWENS_CLIENT_ID = defineSecret("POWENS_CLIENT_ID");
 const POWENS_CLIENT_SECRET = defineSecret("POWENS_CLIENT_SECRET");
 const POWENS_BASE_URL = defineSecret("POWENS_BASE_URL");
 const POWENS_WEBHOOK_SECRET = defineSecret("POWENS_WEBHOOK_SECRET");
+const serverEnv = readServerEnv({
+  POWENS_CLIENT_ID: "configured-at-runtime",
+  POWENS_CLIENT_SECRET: "configured-at-runtime",
+  POWENS_BASE_URL: "https://example.invalid",
+  POWENS_WEBHOOK_SECRET: "configured-at-runtime",
+  SENTRY_DSN: process.env.SENTRY_DSN,
+  FIREBASE_ENFORCE_APP_CHECK: process.env.FIREBASE_ENFORCE_APP_CHECK
+});
 
 const secureCallableOptions = {
   region: "europe-west1",
-  enforceAppCheck: true,
+  ...(serverEnv.FIREBASE_ENFORCE_APP_CHECK ? { enforceAppCheck: true } : {}),
   secrets: [POWENS_CLIENT_ID, POWENS_CLIENT_SECRET, POWENS_BASE_URL, POWENS_WEBHOOK_SECRET]
 } as const;
 
@@ -40,25 +49,43 @@ export const createBankLinkSession = onCall(secureCallableOptions, async (reques
     updatedAt: new Date().toISOString()
   });
 
-  const session = await provider.createLinkSession({
-    userId: auth.uid,
-    connectionId,
-    redirectUrl: input.redirectUrl
-  });
+  try {
+    const session = await provider.createLinkSession({
+      userId: auth.uid,
+      connectionId,
+      redirectUrl: input.redirectUrl
+    });
 
-  await db.doc(`users/${auth.uid}/bankConnections/${connectionId}`).set(
-    {
-      externalReference: session.externalReference,
-      institutionName: session.institutionName ?? "Powens",
-      updatedAt: new Date().toISOString()
-    },
-    { merge: true }
-  );
+    if (!session.sessionUrl) {
+      throw new Error("Powens did not return a session URL");
+    }
 
-  return {
-    sessionUrl: session.sessionUrl,
-    expiresAt: session.expiresAt
-  };
+    await db.doc(`users/${auth.uid}/bankConnections/${connectionId}`).set(
+      {
+        externalReference: session.externalReference,
+        institutionName: session.institutionName ?? "Powens",
+        updatedAt: new Date().toISOString()
+      },
+      { merge: true }
+    );
+
+    return {
+      sessionUrl: session.sessionUrl,
+      expiresAt: session.expiresAt
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown Powens session error";
+    await db.doc(`users/${auth.uid}/bankConnections/${connectionId}`).set(
+      {
+        status: "error",
+        syncError: message,
+        updatedAt: new Date().toISOString()
+      },
+      { merge: true }
+    );
+    logger.error("Create bank link session failed", { connectionId, userId: auth.uid, error });
+    throw new HttpsError("internal", "Connexion Powens impossible. Verifie les secrets et l'URL de base Powens.");
+  }
 });
 
 export const runManualSync = onCall(secureCallableOptions, async (request: any) => {

@@ -8,6 +8,8 @@ export type ClientEnv = {
   EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: string;
   EXPO_PUBLIC_FIREBASE_APP_ID: string;
   EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID: string;
+  EXPO_PUBLIC_FIREBASE_APPCHECK_SITE_KEY: string | undefined;
+  EXPO_PUBLIC_FIREBASE_APPCHECK_DEBUG_TOKEN: string | undefined;
   EXPO_PUBLIC_USE_FIREBASE_EMULATORS: boolean;
 };
 
@@ -17,6 +19,7 @@ export type ServerEnv = {
   POWENS_BASE_URL: string;
   POWENS_WEBHOOK_SECRET: string;
   SENTRY_DSN: string;
+  FIREBASE_ENFORCE_APP_CHECK: boolean;
 };
 
 export const readClientEnv = (input: Record<string, string | undefined>): ClientEnv => ({
@@ -36,6 +39,8 @@ export const readClientEnv = (input: Record<string, string | undefined>): Client
   EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID:
     input.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID ??
     DEFAULT_FIREBASE_PUBLIC_CONFIG.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID,
+  EXPO_PUBLIC_FIREBASE_APPCHECK_SITE_KEY: optionalString(input.EXPO_PUBLIC_FIREBASE_APPCHECK_SITE_KEY),
+  EXPO_PUBLIC_FIREBASE_APPCHECK_DEBUG_TOKEN: optionalString(input.EXPO_PUBLIC_FIREBASE_APPCHECK_DEBUG_TOKEN),
   EXPO_PUBLIC_USE_FIREBASE_EMULATORS: parseBoolean(input.EXPO_PUBLIC_USE_FIREBASE_EMULATORS)
 });
 
@@ -44,7 +49,8 @@ export const readServerEnv = (input: Record<string, string | undefined>): Server
   POWENS_CLIENT_SECRET: requireString(input, "POWENS_CLIENT_SECRET"),
   POWENS_BASE_URL: requireUrl(input, "POWENS_BASE_URL"),
   POWENS_WEBHOOK_SECRET: requireString(input, "POWENS_WEBHOOK_SECRET"),
-  SENTRY_DSN: input.SENTRY_DSN ?? ""
+  SENTRY_DSN: input.SENTRY_DSN ?? "",
+  FIREBASE_ENFORCE_APP_CHECK: parseBoolean(input.FIREBASE_ENFORCE_APP_CHECK)
 });
 
 const requireString = (input: Record<string, string | undefined>, key: string) => {
@@ -64,6 +70,15 @@ const requireUrl = (input: Record<string, string | undefined>, key: string) => {
   } catch {
     throw new Error(`Invalid URL for environment variable: ${key}`);
   }
+};
+
+const optionalString = (value: string | undefined) => {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
 };
 
 const parseBoolean = (value: string | undefined) => value === "true";
