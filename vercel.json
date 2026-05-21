@@ -1,0 +1,6 @@
+{
+  "installCommand": "npm install",
+  "buildCommand": "npm run build --workspace=@budgetlink/client",
+  "outputDirectory": "apps/client/dist",
+  "cleanUrls": true
+}

@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "include": [
+    "app",
+    "src",
+    "expo-env.d.ts",
+    "../../types/**/*.d.ts",
+    ".expo/types/**/*.ts"
+  ]
+}

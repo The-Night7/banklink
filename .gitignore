@@ -1,0 +1,15 @@
+node_modules
+.expo
+.turbo
+dist
+build
+coverage
+.firebase
+.env
+.env.local
+.DS_Store
+apps/client/.expo
+apps/client/dist
+apps/functions/lib
+apps/functions/.runtimeconfig.json
+firebase-debug.log

@@ -1,0 +1,4 @@
+appId: com.budgetlink.app
+---
+- launchApp
+- assertVisible: "BudgetLink"

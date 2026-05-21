@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "BudgetLink",
+    "slug": "budgetlink",
+    "scheme": "budgetlink",
+    "platforms": ["ios", "android", "web"],
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "experiments": {
+      "typedRoutes": true
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": ["expo-router"]
+  }
+}
