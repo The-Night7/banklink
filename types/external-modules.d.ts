@@ -94,6 +94,7 @@ declare module "firebase/auth" {
   export function onAuthStateChanged(...args: any[]): () => void;
   export function signInWithEmailAndPassword(...args: any[]): Promise<any>;
   export function signInWithPopup(...args: any[]): Promise<any>;
+  export function signInWithRedirect(...args: any[]): Promise<any>;
   export function signOut(...args: any[]): Promise<void>;
   export function updateProfile(...args: any[]): Promise<void>;
   export function connectAuthEmulator(...args: any[]): void;

@@ -8,6 +8,7 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   updateProfile,
   type User
@@ -80,33 +81,54 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
       profile,
       loading,
       signInWithEmail: async (email, password) => {
-        await signInWithEmailAndPassword(auth, email, password);
+        try {
+          await signInWithEmailAndPassword(auth, email, password);
+        } catch (error) {
+          throw new Error(describeAuthError(error));
+        }
       },
       signUpWithEmail: async (email, password, displayName) => {
-        const credentials = await createUserWithEmailAndPassword(auth, email, password);
-        await updateProfile(credentials.user, { displayName });
-        await setDoc(
-          doc(firestore, `users/${credentials.user.uid}`),
-          {
-            id: credentials.user.uid,
-            email,
-            displayName,
-            locale: "fr-FR",
-            currency: "EUR",
-            onboardingCompleted: false,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          },
-          { merge: true }
-        );
+        try {
+          const credentials = await createUserWithEmailAndPassword(auth, email, password);
+          await updateProfile(credentials.user, { displayName });
+          await setDoc(
+            doc(firestore, `users/${credentials.user.uid}`),
+            {
+              id: credentials.user.uid,
+              email,
+              displayName,
+              locale: "fr-FR",
+              currency: "EUR",
+              onboardingCompleted: false,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            },
+            { merge: true }
+          );
+        } catch (error) {
+          throw new Error(describeAuthError(error));
+        }
       },
       signInWithGoogle: async () => {
         if (Platform.OS !== "web") {
-          throw new Error("Google sign-in mobile requires native OAuth client IDs");
+          throw new Error("Google sur mobile necessite encore des client IDs OAuth natifs. Utilise email/mot de passe dans Expo Go pour l'instant.");
         }
 
-        const provider = new GoogleAuthProvider();
-        await signInWithPopup(auth, provider);
+        const provider = new GoogleAuthProvider() as any;
+        provider.setCustomParameters?.({ prompt: "select_account" });
+
+        try {
+          await signInWithPopup(auth, provider);
+        } catch (error) {
+          const code = getFirebaseErrorCode(error);
+
+          if (code === "auth/popup-blocked" || code === "auth/cancelled-popup-request") {
+            await signInWithRedirect(auth, provider);
+            return;
+          }
+
+          throw new Error(describeAuthError(error));
+        }
       },
       signOutUser: async () => {
         await signOut(auth);
@@ -146,4 +168,36 @@ export const useAuth = () => {
   }
 
   return value;
+};
+
+const getFirebaseErrorCode = (error: unknown) =>
+  typeof error === "object" && error !== null && "code" in error ? String((error as { code: unknown }).code) : "";
+
+const describeAuthError = (error: unknown) => {
+  const code = getFirebaseErrorCode(error);
+
+  switch (code) {
+    case "auth/invalid-credential":
+    case "auth/invalid-login-credentials":
+    case "auth/wrong-password":
+    case "auth/user-not-found":
+      return "Email ou mot de passe incorrect.";
+    case "auth/email-already-in-use":
+      return "Cet email est deja utilise.";
+    case "auth/weak-password":
+      return "Le mot de passe est trop faible. Utilise au moins 8 caracteres.";
+    case "auth/popup-closed-by-user":
+      return "La fenetre Google a ete fermee avant la fin de la connexion.";
+    case "auth/popup-blocked":
+    case "auth/cancelled-popup-request":
+      return "Le navigateur a bloque la fenetre Google. Une redirection va etre tentee.";
+    case "auth/operation-not-allowed":
+      return "Le provider Google n'est pas active dans Firebase Auth.";
+    case "auth/unauthorized-domain":
+      return "Le domaine actuel n'est pas autorise dans Firebase Auth.";
+    case "auth/network-request-failed":
+      return "La requete reseau a echoue. Verifie ta connexion.";
+    default:
+      return error instanceof Error ? error.message : "Erreur d'authentification inconnue.";
+  }
 };
