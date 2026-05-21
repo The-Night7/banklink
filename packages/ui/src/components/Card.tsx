@@ -1,5 +1,5 @@
 import type { PropsWithChildren } from "react";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 
 import { colors, radii, spacing } from "../theme/tokens";
 
@@ -17,9 +17,15 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radii.md,
     borderWidth: 1,
-    shadowColor: "#000000",
-    shadowOpacity: 0.05,
-    shadowRadius: 12
+    ...(Platform.OS === "web"
+      ? { boxShadow: "0px 12px 24px rgba(0, 0, 0, 0.05)" }
+      : {
+          elevation: 2,
+          shadowColor: "#000000",
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.05,
+          shadowRadius: 12
+        })
   },
   padded: {
     padding: spacing.md
